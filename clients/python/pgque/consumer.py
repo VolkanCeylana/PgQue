@@ -10,6 +10,7 @@ import select
 from typing import Callable, Optional
 
 import psycopg
+from psycopg import sql
 
 from .client import PgqueClient
 from .types import Message
@@ -106,7 +107,7 @@ class Consumer:
             with psycopg.connect(self.dsn, autocommit=True) as conn:
                 # Subscribe for wakeup notifications
                 channel = f"pgque_{self.queue}"
-                conn.execute(f"LISTEN {channel}")
+                conn.execute(sql.SQL("LISTEN {}").format(sql.Identifier(channel)))
                 logger.info(
                     "consumer %s listening on %s (poll=%ds)",
                     self.name,

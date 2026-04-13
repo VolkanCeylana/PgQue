@@ -57,7 +57,6 @@ class PgqueClient:
                 (queue, payload),
             ).fetchone()
 
-        self.conn.commit()
         return row[0]
 
     def send_batch(
@@ -85,7 +84,6 @@ class PgqueClient:
             "select pgque.send_batch(%s, %s, %s::jsonb[])",
             (queue, type, json_payloads),
         ).fetchone()
-        self.conn.commit()
         return list(row[0])
 
     def receive(
