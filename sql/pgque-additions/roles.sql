@@ -7,8 +7,16 @@ do $$ begin create role pgque_writer; exception when duplicate_object then null;
 do $$ begin create role pgque_admin;  exception when duplicate_object then null; end $$;
 
 -- Inheritance: admin > writer > reader
-grant pgque_reader to pgque_writer;
-grant pgque_writer to pgque_admin;
+-- Wrapped in exception handlers for PG14/15 compatibility (no IF NOT EXISTS
+-- for role grants until PG16).
+do $$ begin
+    grant pgque_reader to pgque_writer;
+exception when duplicate_object then null;
+end $$;
+do $$ begin
+    grant pgque_writer to pgque_admin;
+exception when duplicate_object then null;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Reader: read-only access to schema and information functions
@@ -62,3 +70,6 @@ grant all on schema pgque to pgque_admin;
 grant all on all tables in schema pgque to pgque_admin;
 grant all on all sequences in schema pgque to pgque_admin;
 grant execute on all functions in schema pgque to pgque_admin;
+
+-- uninstall() drops the entire schema — only superuser / schema owner should run it
+revoke execute on function pgque.uninstall() from pgque_admin;
