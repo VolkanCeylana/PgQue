@@ -4024,7 +4024,7 @@ begin
     select cron.schedule_in_database(
         'pgque_ticker',
         '2 seconds',
-        $sql$select pgque.ticker()$sql$,
+        $sql$SET statement_timeout = '1500ms'; SELECT pgque.ticker()$sql$,
         v_dbname
     ) into v_ticker_id;
 
@@ -4032,7 +4032,7 @@ begin
     select cron.schedule_in_database(
         'pgque_maint',
         '30 seconds',
-        $sql$select f.func_name from pgque.maint_operations() f$sql$,
+        $sql$SET statement_timeout = '25s'; SELECT pgque.maint()$sql$,
         v_dbname
     ) into v_maint_id;
 
@@ -4082,13 +4082,9 @@ create or replace function pgque.uninstall()
 returns void as $$
 begin
     -- Stop pg_cron jobs before dropping the schema.
-    -- Handle stop() failures gracefully (pg_cron may not be installed,
-    -- or jobs may have been removed externally).
-    begin
+    if exists (select 1 from pg_extension where extname = 'pg_cron') then
         perform pgque.stop();
-    exception when others then
-        raise notice 'pgque.uninstall: stop() failed (%), continuing', sqlerrm;
-    end;
+    end if;
     -- Drop everything
     drop schema pgque cascade;
     -- Note: roles are not dropped here (they may be in use by other databases)
