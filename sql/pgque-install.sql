@@ -665,7 +665,7 @@ begin
     perform pg_notify('pgque_' || i_queue_name, i_tick_id::text);
     return i_tick_id;
 end;
-$$ language plpgsql security definer set search_path = pgque, pg_catalog; -- unsure about access
+$$ language plpgsql security definer set search_path = pgque, pg_catalog;
 
 
 create or replace function pgque.ticker(i_queue_name text)
@@ -770,7 +770,7 @@ begin
     perform pg_notify('pgque_' || i_queue_name, currval(q.queue_tick_seq)::text);
     return currval(q.queue_tick_seq);
 end;
-$$ language plpgsql security definer set search_path = pgque, pg_catalog; -- unsure about access
+$$ language plpgsql security definer set search_path = pgque, pg_catalog;
 
 create or replace function pgque.ticker() returns bigint as $$
 -- ----------------------------------------------------------------------
@@ -2739,22 +2739,6 @@ begin
 end;
 $$ language plpgsql security definer set search_path = pgque, pg_catalog;
 
-create or replace function pgque.version()
-returns text as $$
--- ----------------------------------------------------------------------
--- Function: pgque.version(0)
---
---      Returns version string for pgq.
--- ----------------------------------------------------------------------
-declare
-    _vers text;
-begin
-    select extversion from pg_catalog.pg_extension
-        where extname = 'pgque' into _vers;
-    return _vers;
-end;
-$$ language plpgsql;
-
 
 create or replace function pgque.get_batch_info(
     in x_batch_id       bigint,
@@ -3521,7 +3505,7 @@ $$ language sql strict immutable;
 
 create or replace function pgque.sqltriga() returns trigger as $$
 -- ----------------------------------------------------------------------
--- Function: pgque.logutriga()
+-- Function: pgque.sqltriga()
 --
 --      Trigger function that puts row data in SQL-fragment form into queue.
 --

@@ -437,6 +437,16 @@ sed -i '/^    return currval(q\.queue_tick_seq);$/i\
 
 echo "PASS: pg_notify injected into ticker function"
 
+# Fix inherited PgQ copy-paste bug: sqltriga comment says logutriga
+sed -i 's/Function: pgque.logutriga()/Function: pgque.sqltriga()/' "${OUTPUT_DIR}/lowlevel_pl/sqltriga.sql"
+
+echo "PASS: sqltriga comment header fixed"
+
+# Remove debug comments from ticker
+sed -i 's/ -- unsure about access//' "${OUTPUT_DIR}/functions/pgque.ticker.sql"
+
+echo "PASS: debug comments removed from ticker"
+
 # -- Assembly: build sql/pgque-install.sql ------------------------------------
 
 echo ""
@@ -457,18 +467,18 @@ apply_idempotency_guards() {
 
   # CREATE TABLE (but not "CREATE TABLE IF NOT EXISTS" which already exists)
   content=$(echo "$content" | sed -E \
-    's/^([[:space:]]*)create table ([^(])/\1create table if not exists \2/I' \
-    | sed -E 's/if not exists if not exists/if not exists/gI')
+    's/^([[:space:]]*)create table ([^(])/\1create table if not exists \2/' \
+    | sed -E 's/if not exists if not exists/if not exists/g')
 
   # CREATE SEQUENCE
   content=$(echo "$content" | sed -E \
-    's/^([[:space:]]*)create sequence /\1create sequence if not exists /I' \
-    | sed -E 's/if not exists if not exists/if not exists/gI')
+    's/^([[:space:]]*)create sequence /\1create sequence if not exists /' \
+    | sed -E 's/if not exists if not exists/if not exists/g')
 
   # CREATE INDEX
   content=$(echo "$content" | sed -E \
-    's/^([[:space:]]*)create index /\1create index if not exists /I' \
-    | sed -E 's/if not exists if not exists/if not exists/gI')
+    's/^([[:space:]]*)create index /\1create index if not exists /' \
+    | sed -E 's/if not exists if not exists/if not exists/g')
 
   echo "$content"
 }
@@ -544,7 +554,6 @@ FUNCTION_FILES=(
   pgque.finish_batch.sql
   pgque.get_queue_info.sql
   pgque.get_consumer_info.sql
-  pgque.version.sql
   pgque.get_batch_info.sql
 )
 
