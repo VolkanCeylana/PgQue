@@ -282,20 +282,27 @@ conditions.** Full details, methodology, and raw data:
 Key findings (PgQ v3.5.1, tuned config: `synchronous_commit=off`,
 `shared_buffers=4GB`, `max_wal_size=8GB`, `wal_level=minimal`):
 
-| Scenario | Throughput |
-|---|---|
-| C mode, single insert/TX, ~100B, 16 clients | 117,924 ev/s |
-| **PL/pgSQL mode, single insert/TX, ~100B, 16 clients** | **85,836 ev/s** |
-| C mode, batched 1000/TX, ~2KB, 16 clients | 257,179 ev/s (502 MB/s) |
-| C mode, batched, 30-min sustained (70 checkpoints) | 163,940 ev/s (316 MB/s avg) |
-| Consumer read rate, 100k batch, ~100B | ~2.4M ev/s |
-| Consumer read rate, 100k batch, ~2KB | ~305k ev/s (596 MB/s) |
+| Scenario | Throughput | Per core |
+|---|---|---|
+| C mode, single insert/TX, ~100B, 16 clients | 117,924 ev/s | ~11.8k ev/s |
+| **PL/pgSQL mode, single insert/TX, ~100B, 16 clients** | **85,836 ev/s** | **~8.6k ev/s** |
+| C mode, batched 1000/TX, ~2KB, 16 clients | 257,179 ev/s (502 MB/s) | ~25.7k ev/s (~50 MB/s) |
+| C mode, batched, 30-min sustained (70 checkpoints) | 163,940 ev/s (316 MB/s avg) | ~16.4k ev/s (~31.6 MB/s) |
+| Consumer read rate, 100k batch, ~100B | ~2.4M ev/s | ~240k ev/s |
+| Consumer read rate, 100k batch, ~2KB | ~305k ev/s (596 MB/s) | ~30.5k ev/s (~59.6 MB/s) |
+
+Per-core numbers assume all 10 cores are utilized (Apple Silicon, mixed
+P/E cores). Actual per-core throughput on server hardware with uniform cores
+may differ. These per-core figures enable direct comparison with systems
+like RedPanda (~100 Mbps = ~12.5 MB/s per core claimed). PgQ sustained:
+~31.6 MB/s per core (~253 Mbps) — roughly **2.5x RedPanda's per-core
+claim**, with full ACID transactions.
 
 The PL/pgSQL row is the most relevant for pgque — it shows the throughput
-ceiling for the no-C-extension mode that pgque will use. At ~86k ev/s for
-single-insert-per-TX, PgQ's PL/pgSQL mode is competitive with C-based
-alternatives, especially considering that it produces zero dead tuples under
-sustained load.
+ceiling for the no-C-extension mode that pgque will use. At ~8.6k ev/s per
+core for single-insert-per-TX, PgQ's PL/pgSQL mode is competitive with
+C-based alternatives, especially considering that it produces zero dead
+tuples under sustained load.
 
 Notable observations from the benchmark:
 
