@@ -80,6 +80,10 @@ begin
     join pgque.queue q on q.queue_id = s.sub_queue
     where s.sub_batch = i_batch_id;
 
+    if not found then
+        raise exception 'batch not found: %', i_batch_id;
+    end if;
+
     if coalesce(i_msg.retry_count, 0) >= v_max_retries then
         -- Move to dead letter queue (pass event fields, no re-query)
         perform pgque.event_dead(i_batch_id, i_msg.msg_id,
