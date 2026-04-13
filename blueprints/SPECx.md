@@ -2419,6 +2419,19 @@ end;
 $$;
 ```
 
+**Unit tests vs. integration tests:** The example above is a **unit test**
+— it forges `retry_count` to isolate `nack()`'s DLQ routing logic. This
+proves the conditional works but does not test that `ev_retry` actually
+increments through the real retry flow (`event_retry_raw` → `maint_retry_events`
+→ next batch delivery). Both are needed:
+
+- **Unit test:** forge state, test one function's logic (fast, isolated)
+- **Integration test:** full retry cycle (nack → ack → maint → ticker →
+  receive), verify `retry_count` increments naturally (slower, end-to-end)
+
+Write the unit test first (TDD red/green). Then write the integration test
+as an acceptance test (section 13.3, US-3). Both must pass.
+
 ### 13.3 User Stories and Acceptance Tests
 
 These are end-to-end scenarios that verify pgque works as a complete system.
@@ -2463,13 +2476,18 @@ failures are handled without manual intervention.
 
 ```
 Setup:   create queue "jobs" with max_retries=2, subscribe "worker"
-Action:  send event, ticker(), receive
-         nack(msg) three times (with ticker + maint between each)
-Verify:  event appears in receive() after first two nacks (retried)
-         after third nack: event is in dead_letter table
+Action:  send event, ticker(), receive (retry_count=NULL, coalesced to 0)
+         -- Retry cycle (each nack requires: nack → ack → maint → ticker → receive)
+         Cycle 1: nack(msg) → ack(batch) → maint() → ticker() → receive
+                  (retry_count=1, event_retry_raw incremented it)
+         Cycle 2: nack(msg) → ack(batch) → maint() → ticker() → receive
+                  (retry_count=2, now >= max_retries)
+         Cycle 3: nack(msg) → retry_count=2 >= max_retries=2 → DLQ
+                  ack(batch)
+Verify:  event is in dead_letter table (not retried again)
          dlq_inspect() shows the event with reason
          dlq_replay() re-inserts it into the queue
-         receive() gets the replayed event
+         ticker(), receive() gets the replayed event (retry_count reset)
 ```
 
 #### US-4: Delayed delivery
@@ -2577,12 +2595,26 @@ Verify:  queue_stats() shows correct depth, throughput, DLQ count
 **so that** upgrades and accidental re-runs don't break anything.
 
 ```
-Setup:   install pgque, create queues, insert events
+Setup:   install pgque, create queues, insert events, subscribe consumers
+         note current queue depth and consumer positions
 Action:  run \i pgque-install.sql again
 Verify:  no errors
-         existing queues and events are preserved
+         existing queues and events are preserved (check depth matches)
+         consumer positions are preserved (sub_last_tick unchanged)
          all functions work correctly after re-install
+         send + ticker + receive + ack cycle works
 ```
+
+**Implementation note:** This is the hardest test to get right. PgQ's
+original source uses plain `CREATE TABLE` / `CREATE FUNCTION` without
+idempotency guards. `build/transform.sh` must ensure the install script
+uses `CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`,
+`CREATE TYPE ... IF NOT EXISTS` (or `DO $$ BEGIN ... EXCEPTION WHEN
+duplicate_object ...`), and `CREATE SEQUENCE IF NOT EXISTS`. The test
+must verify not just "no errors" but "data survives" — specifically that
+queue contents, consumer positions, tick history, config, and DLQ entries
+are all preserved across re-install. This is a Sprint 1 deliverable that
+deserves dedicated test coverage beyond this user story.
 
 #### Running acceptance tests
 
