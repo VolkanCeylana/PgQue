@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 # transform.sh -- Mechanical transformation of PgQ sources into pgque
 #
-# Reads PgQ PL-only source files from vendor/pgq/ and applies:
+# Reads PgQ PL-only source files from pgq/ and applies:
 #   1. Schema rename: pgq -> pgque
 #   2. txid_* -> pg_* snapshot function renames
 #   3. txid_snapshot type -> pg_snapshot
@@ -18,18 +18,18 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-VENDOR_DIR="${REPO_ROOT}/vendor/pgq"
+PGQ_DIR="${REPO_ROOT}/pgq"
 OUTPUT_DIR="${SCRIPT_DIR}/output"
 
 # -- Validate prerequisites --------------------------------------------------
 
-if [[ ! -d "${VENDOR_DIR}" ]]; then
-  echo "ERROR: vendor/pgq/ not found. Run: git submodule update --init" >&2
+if [[ ! -d "${PGQ_DIR}" ]]; then
+  echo "ERROR: pgq/ not found. Run: git submodule update --init" >&2
   exit 1
 fi
 
-if [[ ! -f "${VENDOR_DIR}/structure/tables.sql" ]]; then
-  echo "ERROR: vendor/pgq/structure/tables.sql not found. Submodule may be empty." >&2
+if [[ ! -f "${PGQ_DIR}/structure/tables.sql" ]]; then
+  echo "ERROR: pgq/structure/tables.sql not found. Submodule may be empty." >&2
   exit 1
 fi
 
@@ -173,7 +173,7 @@ apply_search_path_to_security_definer() {
   #   $$ language plpgsql security definer;
   #   $$ language plpgsql security definer; -- comment
   content=$(echo "$content" | sed -E \
-    's/^(\$\$ language plpgsql) security definer;(.*)$/\1 security definer set search_path = pgque, pg_catalog;\2/I')
+    's/^(\$\$ language plpgsql) security definer;(.*)$/\1 security definer set search_path = pgque, pg_catalog;\2/')
 
   echo "$content"
 }
@@ -267,13 +267,13 @@ remove_pgq_node_londiste_hooks() {
 # -- Main transformation pipeline --------------------------------------------
 
 echo "=== PgQ -> PgQue transformation pipeline ==="
-echo "Source: ${VENDOR_DIR}"
+echo "Source: ${PGQ_DIR}"
 echo "Output: ${OUTPUT_DIR}"
 echo ""
 
 file_count=0
 for src_file in "${SOURCE_FILES[@]}"; do
-  src_path="${VENDOR_DIR}/${src_file}"
+  src_path="${PGQ_DIR}/${src_file}"
 
   if [[ ! -f "${src_path}" ]]; then
     echo "WARNING: source file not found: ${src_file}" >&2
@@ -308,7 +308,7 @@ for src_file in "${SOURCE_FILES[@]}"; do
       ;;
   esac
 
-  echo "$content" > "${out_path}"
+  printf '%s\n' "$content" > "${out_path}"
   file_count=$((file_count + 1))
 done
 
@@ -324,7 +324,6 @@ errors=0
 # Check for remaining pgq. schema references (excluding comments about PgQ project)
 # We look for pgq. followed by a letter/underscore (schema-qualified name pattern)
 remaining_pgq=$(grep -rn 'pgq\.[a-zA-Z_]' "${OUTPUT_DIR}" \
-  | grep -v '^\s*--' \
   | grep -v '^[^:]*:[0-9]*:\s*--' \
   || true)
 
@@ -386,7 +385,6 @@ fi
 
 # Verify pgq_node/londiste hooks are gone from maint_operations
 remaining_hooks=$(grep -n 'pgq_node\|londiste' "${OUTPUT_DIR}/functions/pgque.maint_operations.sql" \
-  | grep -v '^\s*--' \
   | grep -v '^[0-9]*:\s*--' \
   || true)
 
