@@ -4052,7 +4052,7 @@ begin
     if exists (select 1 from pg_extension where extname = 'pg_cron') then
         return query
         select 'ticker'::text,
-            case when c.ticker_job_id is not null then 'running' else 'stopped' end,
+            case when c.ticker_job_id is not null then 'scheduled' else 'stopped' end,
             case when c.ticker_job_id is not null
                 then 'job_id=' || c.ticker_job_id::text
                 else 'not scheduled'
@@ -4061,7 +4061,7 @@ begin
 
         return query
         select 'maintenance'::text,
-            case when c.maint_job_id is not null then 'running' else 'stopped' end,
+            case when c.maint_job_id is not null then 'scheduled' else 'stopped' end,
             case when c.maint_job_id is not null
                 then 'job_id=' || c.maint_job_id::text
                 else 'not scheduled'

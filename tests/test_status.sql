@@ -9,7 +9,7 @@ begin
   loop
     if v_row.component = 'pgque' then
       v_found_pgque := true;
-      assert v_row.detail = '1.0.0-dev', 'pgque version should be 1.0.0-dev, got ' || v_row.detail;
+      assert v_row.detail = pgque.version(), 'pgque version should be ' || pgque.version() || ', got ' || v_row.detail;
     end if;
     if v_row.component = 'postgresql' then
       v_found_pg := true;
