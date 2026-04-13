@@ -1,9 +1,9 @@
 # PgQue -- PgQ Universal Edition
 
-- **Version:** 0.3.0-draft
+- **Version:** 0.4.0-draft
 - **Date:** 2026-04-12
 - **License:** Apache-2.0
-- **Status:** Reviewer-ready draft (first review round addressed)
+- **Status:** Second review round addressed (3 reviewers)
 - **Companion:** SPEC.md (v0.7.0-draft) contains the deep architectural analysis of PgQ internals -- rotation mechanics, snapshot isolation, batch_event_sql algorithm, dual-filter optimization, INHERITS justification, rotation state machine, subtransaction caveats, tick cleanup invariants. This document references SPEC.md for those topics rather than duplicating them.
 
 **Two-layer architecture:** pgque is explicitly structured as two layers:
@@ -17,6 +17,7 @@
 | 0.1.0-draft | 2026-04-12 | Initial draft: repackaging thesis, what changes from PgQ, modern API layer, observability, client libraries, advanced patterns, implementation phases, source file inventory. |
 | 0.2.0-draft | 2026-04-12 | Landscape comparison (28 systems across PG-native, external brokers, workflow engines, Python task queues; architectural comparison table; positioning rationale). Team/staffing with week-by-week Gantt. Risk table (11 risks). Best practices. Sprint-level implementation plan with deliverables and test plans. |
 | 0.3.0-draft | 2026-04-12 | First review round. Rename pgqx to pgque (PgQ Universal Edition). Explicit two-layer architecture (pgque-core vs pgque-api). Fix receive() batch ownership trap (rename i_batch_size to i_max_return, document that ack processes entire batch). Fix nack() to accept retry_count parameter (avoid re-querying batch). Fix send_batch() to resolve queue/table once. Fix OTel counter/gauge semantics. Fix queue_health() edge cases. Soften "Exactly-once capable" to "Exactly-once capable (transactional pattern)". Resolve priority contradiction. Add VACUUM for delayed_events and dead_letter to maint(). Defer full OTel export architecture and Node/Ruby SDKs to v2. Align Sprint 5 with risk mitigation (Python + Go only). Document receive() rotation-blocking behavior. |
+| 0.4.0-draft | 2026-04-12 | Second review round (3 reviewers). Add preliminary benchmark results (section 2.9, from NikolayS/pgq#1 -- quick-and-dirty laptop benchmark, needs repetition on server hardware). Update throughput claim from ~10-20k to ~86k ev/s (PL/pgSQL measured). Add PgQ code import strategy: git submodule + build/transform.sh (section 8.0). Fix `event_dead()` to accept event fields from caller instead of re-querying batch. Remove dead `qstate` lookup from `send_batch()`, leave TODO. Read `max_retries` from queue config instead of hardcoding 5 in `nack()`. Drop `peek()` from v1 scope. Fix `delayed_events` index (remove broken partial-index predicate with `now()`). Rename `send_at()` return type documentation to clarify it returns a scheduled-entry ID, not a queue event ID. Fix Node.js/Ruby class names (PgqueClient -> PgqueClient, Pgque:: -> Pgque::). Fix CLI env var (PGQUE_DSN -> PGQUE_DSN). Align Gantt with v1 scope (remove Node.js/Ruby from weeks 7-8). Add `queue_max_retries` column to `pgque.queue` table. Fix `queue_health()` to handle queues with no ticks. |
 
 ---
 
@@ -176,7 +177,7 @@ systems across the features that matter for production operations.
 | Language-agnostic | Yes (SQL API) | Yes (SQL API) | Go only | Node.js only | Node.js only | Elixir only | Ruby only |
 | Managed PG compatible | Yes | Depends (needs ext) | Yes | Yes | Yes | Yes | Yes |
 | Latency (typical) | 1-2s (tick interval) | Sub-100ms | Sub-100ms | Sub-3ms | ~1s | ~1s | ~1s |
-| Throughput | ~10-20k events/sec | ~30k msg/sec read | ~46k jobs/sec | ~184k jobs/sec | ~10k jobs/sec | ~20k jobs/sec | Not published |
+| Throughput | ~86k ev/s single-TX, ~164k batched (PL/pgSQL; see 2.9) | ~30k msg/sec read | ~46k jobs/sec | ~184k jobs/sec | ~10k jobs/sec | ~20k jobs/sec | Not published |
 | Battle-tested | 15+ years (Skype/MS) | ~2 years | ~2 years | ~5 years | ~5 years | ~5 years | ~1 year |
 
 **Reading the throughput column:** These numbers come from different benchmarks
@@ -269,6 +270,50 @@ lock acquisition degrades above ~1M queued jobs.
 by design. No per-job locking, no dead tuples, no VACUUM pressure on event
 tables. The trade-off is batch-oriented consumption (not per-job) and
 ticker-driven latency (1-2 seconds, not sub-3ms).
+
+### 2.9 Preliminary benchmark results
+
+A quick-and-dirty benchmark was run on a laptop (Apple Silicon, 10 cores,
+24 GB RAM, APFS SSD, PostgreSQL 18.3). **These numbers are preliminary and
+will need to be repeated on proper server hardware with controlled
+conditions.** Full details, methodology, and raw data:
+[NikolayS/pgq#1](https://github.com/NikolayS/pgq/issues/1).
+
+Key findings (PgQ v3.5.1, tuned config: `synchronous_commit=off`,
+`shared_buffers=4GB`, `max_wal_size=8GB`, `wal_level=minimal`):
+
+| Scenario | Throughput |
+|---|---|
+| C mode, single insert/TX, ~100B, 16 clients | 117,924 ev/s |
+| **PL/pgSQL mode, single insert/TX, ~100B, 16 clients** | **85,836 ev/s** |
+| C mode, batched 1000/TX, ~2KB, 16 clients | 257,179 ev/s (502 MB/s) |
+| C mode, batched, 30-min sustained (70 checkpoints) | 163,940 ev/s (316 MB/s avg) |
+| Consumer read rate, 100k batch, ~100B | ~2.4M ev/s |
+| Consumer read rate, 100k batch, ~2KB | ~305k ev/s (596 MB/s) |
+
+The PL/pgSQL row is the most relevant for pgque — it shows the throughput
+ceiling for the no-C-extension mode that pgque will use. At ~86k ev/s for
+single-insert-per-TX, PgQ's PL/pgSQL mode is competitive with C-based
+alternatives, especially considering that it produces zero dead tuples under
+sustained load.
+
+Notable observations from the benchmark:
+
+- **Tuning matters more than C vs. PL/pgSQL.** PL/pgSQL tuned (86k ev/s)
+  beats C untuned (52k ev/s).
+- **Batching matters most.** 1000 inserts/TX reaches 417k ev/s — 3.6x over
+  single-insert-per-TX.
+- **Consumer is never the bottleneck.** Reading events is 3-6x faster than
+  writing them.
+- **Checkpoints cause dips but not collapse.** Sustained throughput over 70
+  checkpoints (30 min) averaged 316 MB/s with no degradation over time.
+- **Storage is the bottleneck.** pg_ash showed 57% of time spent on
+  `IO:DataFileWrite` — on server-grade NVMe, throughput would scale higher.
+
+**Caveat:** This is a quick-and-dirty benchmark on a laptop. The numbers are
+indicative, not authoritative. A proper benchmark must be run on server
+hardware with controlled conditions, multiple runs, and statistical analysis.
+See Sprint 6 for the planned benchmark methodology.
 
 ---
 
@@ -580,33 +625,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pgque, pg_catalog;
 
-CREATE FUNCTION pgque.send_batch(
+create function pgque.send_batch(
     i_queue text, i_type text, i_payloads jsonb[])
-RETURNS bigint[] AS $$
-DECLARE
+returns bigint[] as $$
+declare
     ids bigint[];
     p jsonb;
-    qstate record;
-BEGIN
-    -- Resolve queue and current table ONCE (not per-event)
-    SELECT q.queue_id,
-        pgque.quote_fqname(q.queue_data_pfx || '_' || q.queue_cur_table::text) AS cur_table,
-        q.queue_event_seq
-    FROM pgque.queue q WHERE q.queue_name = i_queue INTO qstate;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'queue not found: %', i_queue;
-    END IF;
-
-    FOREACH p IN ARRAY i_payloads LOOP
+begin
+    -- TODO: optimize to resolve queue/table once and bypass insert_event_raw
+    -- with a single multi-VALUES insert. Currently each insert_event() call
+    -- resolves the queue independently. Deferred to implementation.
+    foreach p in array i_payloads loop
         ids := array_append(ids,
             pgque.insert_event(i_queue, i_type, p::text));
-    END LOOP;
-    -- NOTE: insert_event still resolves queue per call internally.
-    -- Full optimization (single multi-VALUES insert into resolved table)
-    -- deferred to implementation — requires bypassing insert_event_raw.
-    RETURN ids;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pgque, pg_catalog;
+    end loop;
+    return ids;
+end;
+$$ language plpgsql security definer set search_path = pgque, pg_catalog;
 ```
 
 ### 4.2 Consuming: `pgque.receive()`
@@ -616,11 +651,8 @@ returns messages directly.
 
 ```sql
 -- Receive messages (returns up to 100 from the current batch)
-SELECT * FROM pgque.receive('orders', 'order_processor', 100);
+select * from pgque.receive('orders', 'order_processor', 100);
 -- Returns: msg_id, batch_id, type, payload, retry_count, created_at
-
--- Peek without claiming (does not advance consumer position)
-SELECT * FROM pgque.peek('orders', 'order_processor', 10);
 ```
 
 **Return type:**
@@ -717,53 +749,57 @@ processing timeout and ack/nack on timeout.
 
 ```sql
 -- Ack: finish the batch, advance consumer position
-SELECT pgque.ack(batch_id);
+select pgque.ack(batch_id);
 
 -- Nack a single message: retry after 60 seconds
--- Caller passes retry_count from the message (avoids re-querying the batch)
-SELECT pgque.nack(batch_id, msg_id, msg.retry_count, '60 seconds'::interval);
+-- Pass the full message record (avoids re-querying the batch)
+select pgque.nack(batch_id, msg, '60 seconds'::interval);
 
--- Nack with reason (goes to DLQ after max retries)
-SELECT pgque.nack(batch_id, msg_id, msg.retry_count,
-                 '60 seconds'::interval, 'upstream timeout');
+-- Nack with reason (goes to DLQ after max retries, read from queue config)
+select pgque.nack(batch_id, msg, '60 seconds'::interval, 'upstream timeout');
 ```
 
 **Internal mapping:**
 
 ```sql
-CREATE FUNCTION pgque.ack(i_batch_id bigint)
-RETURNS integer AS $$
-BEGIN
-    RETURN pgque.finish_batch(i_batch_id);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pgque, pg_catalog;
+create function pgque.ack(i_batch_id bigint)
+returns integer as $$
+begin
+    return pgque.finish_batch(i_batch_id);
+end;
+$$ language plpgsql security definer set search_path = pgque, pg_catalog;
 
-CREATE FUNCTION pgque.nack(
+create function pgque.nack(
     i_batch_id bigint,
-    i_msg_id bigint,
-    i_retry_count int4,
-    i_retry_after interval DEFAULT '60 seconds',
-    i_reason text DEFAULT NULL)
-RETURNS integer AS $$
-DECLARE
-    v_max_retries int4 := 5;  -- configurable per queue
-BEGIN
-    -- Caller passes retry_count from the message received via receive().
-    -- This avoids re-executing the batch query (which includes the
-    -- snapshot-based dual filter) just to look up one column.
+    i_msg pgque.message,
+    i_retry_after interval default '60 seconds',
+    i_reason text default null)
+returns integer as $$
+declare
+    v_max_retries int4;
+    v_queue_id int4;
+begin
+    -- Look up queue's max_retries from queue config
+    select s.sub_queue into v_queue_id
+    from pgque.subscription where sub_batch = i_batch_id;
+    select coalesce(q.queue_max_retries, 5) into v_max_retries
+    from pgque.queue q where q.queue_id = v_queue_id;
 
-    IF coalesce(i_retry_count, 0) >= v_max_retries THEN
-        -- Move to dead letter queue
-        PERFORM pgque.event_dead(i_batch_id, i_msg_id,
-            coalesce(i_reason, 'max retries exceeded'));
-    ELSE
+    if coalesce(i_msg.retry_count, 0) >= v_max_retries then
+        -- Move to dead letter queue (pass event fields, no re-query)
+        perform pgque.event_dead(i_batch_id, i_msg.msg_id,
+            coalesce(i_reason, 'max retries exceeded'),
+            i_msg.created_at, null::xid8, i_msg.retry_count,
+            i_msg.type, i_msg.payload,
+            i_msg.extra1, i_msg.extra2, i_msg.extra3, i_msg.extra4);
+    else
         -- Retry after delay
-        PERFORM pgque.event_retry(i_batch_id, i_msg_id,
+        perform pgque.event_retry(i_batch_id, i_msg.msg_id,
             extract(epoch from i_retry_after)::integer);
-    END IF;
-    RETURN 1;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pgque, pg_catalog;
+    end if;
+    return 1;
+end;
+$$ language plpgsql security definer set search_path = pgque, pg_catalog;
 ```
 
 ### 4.4 Subscriptions: fan-out
@@ -851,42 +887,50 @@ pgque.dlq_purge(queue_name text, older_than interval DEFAULT '30 days')
 
 **`event_dead()` implementation:**
 
+`nack()` already has the full message from `receive()`. Rather than
+re-querying the batch via `get_batch_events()` (which runs the full
+snapshot-based dual-filter query), `nack()` performs the DLQ insert
+directly. See the `nack()` implementation below — it calls
+`event_dead()` with the event fields passed through from the caller.
+
 ```sql
-CREATE FUNCTION pgque.event_dead(
-    i_batch_id bigint, i_event_id bigint, i_reason text)
-RETURNS integer AS $$
-DECLARE
-    ev record;
+create function pgque.event_dead(
+    i_batch_id bigint,
+    i_event_id bigint,
+    i_reason text,
+    i_ev_time timestamptz,
+    i_ev_txid xid8,
+    i_ev_retry int4,
+    i_ev_type text,
+    i_ev_data text,
+    i_ev_extra1 text default null,
+    i_ev_extra2 text default null,
+    i_ev_extra3 text default null,
+    i_ev_extra4 text default null)
+returns integer as $$
+declare
     v_sub record;
-BEGIN
+begin
     -- Look up subscription from batch
-    SELECT sub_queue, sub_consumer INTO v_sub
-    FROM pgque.subscription WHERE sub_batch = i_batch_id;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'batch not found: %', i_batch_id;
-    END IF;
+    select sub_queue, sub_consumer into v_sub
+    from pgque.subscription where sub_batch = i_batch_id;
+    if not found then
+        raise exception 'batch not found: %', i_batch_id;
+    end if;
 
-    -- Find the event in the batch
-    SELECT * INTO ev
-    FROM pgque.get_batch_events(i_batch_id)
-    WHERE ev_id = i_event_id;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'event % not found in batch %', i_event_id, i_batch_id;
-    END IF;
-
-    -- Insert into dead letter table
-    INSERT INTO pgque.dead_letter (
+    -- Insert into dead letter table (no re-query of batch events)
+    insert into pgque.dead_letter (
         dl_queue_id, dl_consumer_id, dl_reason,
         ev_id, ev_time, ev_txid, ev_retry, ev_type, ev_data,
         ev_extra1, ev_extra2, ev_extra3, ev_extra4)
-    VALUES (
+    values (
         v_sub.sub_queue, v_sub.sub_consumer, i_reason,
-        ev.ev_id, ev.ev_time, ev.ev_txid, ev.ev_retry, ev.ev_type, ev.ev_data,
-        ev.ev_extra1, ev.ev_extra2, ev.ev_extra3, ev.ev_extra4);
+        i_event_id, i_ev_time, i_ev_txid, i_ev_retry, i_ev_type, i_ev_data,
+        i_ev_extra1, i_ev_extra2, i_ev_extra3, i_ev_extra4);
 
-    RETURN 1;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pgque, pg_catalog;
+    return 1;
+end;
+$$ language plpgsql security definer set search_path = pgque, pg_catalog;
 ```
 
 ### 4.6 Delayed / Scheduled Delivery
@@ -909,29 +953,36 @@ CREATE TABLE pgque.delayed_events (
     de_extra4       text
 );
 
-CREATE INDEX de_deliver_idx ON pgque.delayed_events (de_deliver_at)
-    WHERE de_deliver_at > now() - interval '1 minute';
+CREATE INDEX de_deliver_idx ON pgque.delayed_events (de_deliver_at);
 ```
 
 **`send_at()` implementation:**
 
+**Return value semantics:** When delivery is immediate (`i_deliver_at <= now()`),
+returns the queue event ID (from `insert_event()`). When delivery is delayed,
+returns the **scheduled-entry ID** from `delayed_events.de_id` — this is NOT
+a queue event ID. The actual queue event ID is assigned later when
+`maint_deliver_delayed()` moves the event into the queue. Client libraries
+should document this distinction clearly.
+
 ```sql
-CREATE FUNCTION pgque.send_at(
+create function pgque.send_at(
     i_queue text, i_type text, i_payload jsonb, i_deliver_at timestamptz)
-RETURNS bigint AS $$
-BEGIN
-    IF i_deliver_at <= now() THEN
-        -- Deliver immediately
-        RETURN pgque.insert_event(i_queue, i_type, i_payload::text);
-    END IF;
+returns bigint as $$
+begin
+    if i_deliver_at <= now() then
+        -- Deliver immediately; returns queue event ID
+        return pgque.insert_event(i_queue, i_type, i_payload::text);
+    end if;
 
-    INSERT INTO pgque.delayed_events
+    insert into pgque.delayed_events
         (de_queue_name, de_deliver_at, de_type, de_data)
-    VALUES (i_queue, i_deliver_at, i_type, i_payload::text);
+    values (i_queue, i_deliver_at, i_type, i_payload::text);
 
-    RETURN currval('pgque.delayed_events_de_id_seq');
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pgque, pg_catalog;
+    -- Returns scheduled-entry ID (NOT a queue event ID)
+    return currval('pgque.delayed_events_de_id_seq');
+end;
+$$ language plpgsql security definer set search_path = pgque, pg_catalog;
 ```
 
 **Maintenance integration:** `pgque.maint()` calls
@@ -991,11 +1042,10 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pgque, pg_catalog;
 | `pgque.send_at(queue, type, payload, time)` | `delayed_events` table + `maint_deliver_delayed()` | New |
 | `pgque.receive(queue, consumer, n)` | `next_batch()` + `get_batch_events()` | Combined |
 | `pgque.ack(batch_id)` | `finish_batch(batch_id)` | Rename |
-| `pgque.nack(batch_id, msg_id, delay)` | `event_retry(batch_id, msg_id, seconds)` | + DLQ logic |
+| `pgque.nack(batch_id, msg, delay)` | `event_retry(batch_id, msg_id, seconds)` | + DLQ logic, reads max_retries from queue config |
 | `pgque.subscribe(queue, consumer)` | `register_consumer(queue, consumer)` | Rename |
 | `pgque.unsubscribe(queue, consumer)` | `unregister_consumer(queue, consumer)` | Rename |
-| `pgque.peek(queue, consumer, n)` | `get_batch_events()` on existing batch | Read-only |
-| `pgque.event_dead(batch, event, reason)` | `dead_letter` table insert | New |
+| `pgque.event_dead(batch, event_id, reason, ...)` | `dead_letter` table insert | New, accepts event fields from caller |
 | `pgque.dlq_replay(dl_id)` | `insert_event()` from dead_letter row | New |
 | `pgque.pause_queue(queue)` | `set_queue_config(queue, 'ticker_paused', 'true')` | Convenience |
 
@@ -1127,10 +1177,11 @@ RETURNS TABLE (
     detail      text
 ) AS $$
 BEGIN
-    -- Check: ticker is running
+    -- Check: ticker is running (handle queues with no ticks yet)
     RETURN QUERY
     SELECT q.queue_name, 'ticker_running'::text,
-        CASE WHEN now() - max(t.tick_time) > interval '10 seconds'
+        CASE WHEN max(t.tick_time) IS NULL THEN 'critical'
+             WHEN now() - max(t.tick_time) > interval '10 seconds'
              THEN 'critical' ELSE 'ok' END,
         'Last tick: ' || coalesce(max(t.tick_time)::text, 'never')
     FROM pgque.queue q
@@ -1525,9 +1576,9 @@ func main() {
 Built on `pg` (node-postgres). TypeScript-first.
 
 ```typescript
-import { PgqxClient } from 'pgque-js';
+import { PgqueClient } from 'pgque-js';
 
-const client = new PgqxClient('postgresql://localhost/mydb');
+const client = new PgqueClient('postgresql://localhost/mydb');
 
 // Producer
 await client.send('orders', {
@@ -1556,14 +1607,14 @@ Built on `pg` gem. Rails-friendly.
 ```ruby
 require 'pgque'
 
-client = Pgqx::Client.new("postgresql://localhost/mydb")
+client = Pgque::Client.new("postgresql://localhost/mydb")
 
 # Producer
 client.send("orders", type: "order.created",
             payload: { order_id: 42, total: 99.95 })
 
 # Consumer (standalone)
-consumer = Pgqx::Consumer.new(
+consumer = Pgque::Consumer.new(
   client, queue: "orders", name: "order_processor",
   poll_interval: 30, max_retries: 5
 )
@@ -1757,24 +1808,64 @@ Most code already exists in PgQ's PL/pgSQL source. The plan is organized
 by what is packaging work vs. new development, broken into sprints with
 concrete deliverables and test plans.
 
+### 8.0 PgQ Code Import Strategy
+
+**pgque must not modify PgQ's core source code in-place.** The PgQ engine
+(snapshot isolation, batch processing, table rotation, consumer tracking) is
+proven code with 15+ years of production validation. We import it as a
+dependency and apply transformations mechanically during the build step.
+
+**Approach: git submodule.**
+
+```
+pgque/
+  vendor/pgq/          -- git submodule pointing to github.com/pgq/pgq
+  sql/
+    pgque-install.sql   -- built from vendor/pgq sources + pgque additions
+  build/
+    transform.sh        -- mechanical rename + modernization script
+```
+
+The `vendor/pgq/` submodule pins to a specific PgQ release tag (v3.5.1).
+The build script (`transform.sh`) reads PgQ's PL-only source files, applies
+the mechanical transformations (schema rename, `txid_*` -> `pg_*`, `xid8`,
+`search_path` pinning, cleanup), and concatenates the result with pgque's
+new code (modern API, DLQ, delayed events, observability) into
+`pgque-install.sql`.
+
+**Why git submodule:**
+
+- PgQ upstream changes are visible via submodule diff
+- Clear separation: pgq code is never edited, only transformed
+- Updating to a new PgQ release is a submodule pointer update + re-test
+- Build is reproducible: submodule pin + transform script = deterministic output
+- License compliance: PgQ's ISC-licensed source is preserved unmodified
+
+**Why not fork/copy:** Copying PgQ files into pgque and editing them
+in-place creates a maintenance burden — any upstream fix requires manual
+cherry-picking across renamed files. The submodule + transform approach
+keeps the upstream relationship clean.
+
 ### Sprint 1: Repackaging (2 weeks)
 
 **Nature:** Mechanical transformation. No new logic.
 
 **Deliverables:**
-1. Copy all PL-only source files into pgque directory structure
-2. Global rename: `pgq.` -> `pgque.` (schema prefix in ~40 files)
-3. Replace `txid_*` with `pg_*` functions (8 distinct replacements)
-4. Replace `bigint` with `xid8` for txid columns (schema + functions)
-5. Replace `txid_snapshot` type with `pg_snapshot`
-6. Add `SET search_path = pgque, pg_catalog` to all `SECURITY DEFINER` functions
-7. Remove `queue_per_tx_limit` column and references
-8. Remove `set default_with_oids = 'off'`
-9. Remove `maint_operations` pgq_node/Londiste hooks
-10. Add `pgque.config` table
-11. Build concatenated `pgque-install.sql` and `pgque-uninstall.sql`
-12. Create roles: `pgque_reader`, `pgque_writer`, `pgque_admin`
-13. Regression tests: run PgQ's existing test suite against pgque
+1. Set up PgQ as a git submodule (`vendor/pgq/`, pinned to v3.5.1)
+2. Create `build/transform.sh` that reads PL-only source files and applies
+   all mechanical transformations (items 3-9 below)
+3. Global rename: `pgq.` -> `pgque.` (schema prefix in ~40 files)
+4. Replace `txid_*` with `pg_*` functions (8 distinct replacements)
+5. Replace `bigint` with `xid8` for txid columns (schema + functions)
+6. Replace `txid_snapshot` type with `pg_snapshot`
+7. Add `SET search_path = pgque, pg_catalog` to all `SECURITY DEFINER` functions
+8. Remove `queue_per_tx_limit` column and references
+9. Remove `set default_with_oids = 'off'`
+10. Remove `maint_operations` pgq_node/Londiste hooks
+11. Add `pgque.config` table
+12. Build concatenated `pgque-install.sql` and `pgque-uninstall.sql`
+13. Create roles: `pgque_reader`, `pgque_writer`, `pgque_admin`
+14. Regression tests: run PgQ's existing test suite against pgque
 
 **Tests for Sprint 1:**
 - Every PgQ test case (from `sql/` + `expected/`) passes against pgque after rename
@@ -1820,7 +1911,7 @@ code is correct. After renaming, every PgQ test case should pass identically.
 **Deliverables:**
 1. `pgque.message` type definition
 2. `pgque.send()` / `send_batch()` / `send_at()`
-3. `pgque.receive()` / `peek()`
+3. `pgque.receive()`
 4. `pgque.ack()` / `pgque.nack()`
 5. `pgque.subscribe()` / `unsubscribe()`
 6. `pgque.dead_letter` table + `event_dead()` + `dlq_inspect/replay/purge`
@@ -1840,7 +1931,7 @@ code is correct. After renaming, every PgQ test case should pass identically.
 - `pgque.send_at()` with past timestamp inserts directly into queue
 - `pgque.pause_queue()` stops ticker from generating ticks for that queue; `resume_queue()` restarts
 - `pgque.subscribe()` / `unsubscribe()` correctly manage consumer registration
-- `pgque.peek()` returns events without advancing consumer position (batch not opened)
+- `peek()` is deferred to v2 (semantics need rigorous definition — "peek without claiming" vs "read existing batch" are different operations)
 
 **Line count estimate:** ~500-700 new lines.
 
@@ -1984,11 +2075,11 @@ Week  E1 (PG internals)               E2 (API + libraries)
 6     Sprint 6: SQL regression         Sprint 5: pgque-go
       tests, benchmarks                (Go library)
 
-7     Sprint 6: benchmark run,         Sprint 5: pgque-js
-      stress tests                     (Node.js library)
+7     Sprint 6: benchmark run,         Sprint 5: pgque-py + pgque-go
+      stress tests                     integration tests, examples
 
-8     Sprint 6: docs, README,          Sprint 5: pgque-rb
-      release packaging                (Ruby library), examples
+8     Sprint 6: docs, README,          Sprint 6: SDK docs, example
+      release packaging                apps, migration guides
 ```
 
 ### 9.3 Three-person variant
@@ -2015,8 +2106,8 @@ Week  E1 (PG internals)       E2 (API + libraries)     E3 (Test + DevOps)
 5     Sprint 4: otel metrics  Sprint 5: pgque-py         Benchmark harness,
                                                         sustained load test
 
-6     Docs, release review    Sprint 5: pgque-go,        Sprint 5 library
-                              pgque-js, pgque-rb          tests, examples
+6     Docs, release review    Sprint 5: pgque-go          Sprint 5 library
+                                                        tests, examples
 ```
 
 ### 9.4 Hiring considerations
@@ -2244,7 +2335,7 @@ Usage:
   pgque <command> [flags]
 
 Connection:
-  --dsn, -d     PostgreSQL connection string (or PGQX_DSN env var)
+  --dsn, -d     PostgreSQL connection string (or PGQUE_DSN env var)
   --database    Database name (or PGDATABASE)
 
 Commands:

@@ -27,19 +27,19 @@ table rotation instead of per-row deletion. Zero dead tuples, ever.
 ```sql
 -- Install
 \i pgque-install.sql
-SELECT pgque.start();  -- creates pg_cron ticker + maintenance jobs
+select pgque.start();  -- creates pg_cron ticker + maintenance jobs
 
 -- Create a queue
-SELECT pgque.create_queue('orders');
+select pgque.create_queue('orders');
 
 -- Produce
-SELECT pgque.send('orders', '{"order_id": 42}'::jsonb);
+select pgque.send('orders', '{"order_id": 42}'::jsonb);
 
 -- Consume
-SELECT pgque.subscribe('orders', 'processor');
-SELECT * FROM pgque.receive('orders', 'processor', 100);
+select pgque.subscribe('orders', 'processor');
+select * from pgque.receive('orders', 'processor', 100);
 -- ... process messages ...
-SELECT pgque.ack(batch_id);
+select pgque.ack(batch_id);
 ```
 
 ## Architecture
