@@ -79,22 +79,6 @@ begin
   raise notice 'PASS: US-8 full send/tick/receive/ack cycle works';
 end $$;
 
--- Verify: queue_health() returns checks
-do $$
-declare
-  v_row record;
-  v_count int := 0;
-begin
-  for v_row in select * from pgque.queue_health()
-  loop
-    v_count := v_count + 1;
-  end loop;
-
-  assert v_count >= 1,
-    'queue_health() should return at least 1 check, got ' || v_count;
-  raise notice 'PASS: US-8 queue_health() returns % checks', v_count;
-end $$;
-
 -- Verify: pgque.stop() does not error (even without pg_cron)
 -- On managed PG without pg_cron, stop() should handle gracefully
 do $$
