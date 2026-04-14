@@ -56,6 +56,8 @@ end $$;
 do $$ begin
   perform pgque.force_tick('us8_managed');
   perform pgque.ticker();
+  perform pgque.force_tick('us8_managed');
+  perform pgque.ticker();
 end $$;
 
 do $$
