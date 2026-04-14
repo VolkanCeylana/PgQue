@@ -65,6 +65,52 @@ per-job lifecycle management — features PgQue does not provide. PgQue is an
 **event/message queue** optimized for high-throughput streaming with
 fan-out.
 
+### What genuinely differentiates PgQue
+
+**1. Zero event-table bloat under sustained load (structural, not tuning-dependent)**
+
+SKIP LOCKED queues (PGMQ, River, pg-boss, Oban, graphile-worker) all use
+UPDATE + DELETE on rows, creating dead tuples that require VACUUM. Under
+sustained load this causes documented, reproducible production failures:
+
+- [Brandur/Heroku (2015)](https://brandur.org/postgres-queues): single open
+  transaction caused 60k job backlog in one hour
+- [PlanetScale (2026)](https://planetscale.com/blog/keeping-a-postgres-queue-healthy):
+  death spiral at 800 jobs/sec with shared analytics queries
+- [River issue #59](https://github.com/riverqueue/river/issues/59):
+  autovacuum starvation documented at Heroku
+- Oban Pro shipped table partitioning specifically to mitigate bloat
+- PGMQ/Tembo ships aggressive autovacuum settings baked into their container
+  image
+
+PgQue's TRUNCATE rotation creates zero dead tuples in event tables by
+construction. No tuning required, immune to xmin horizon pinning. This
+matters most at sustained high throughput or when the queue database is
+shared with OLAP workloads.
+
+**2. Native fan-out (multiple independent consumers on a shared event log)**
+
+Each registered consumer maintains its own cursor position and independently
+receives all events. This is fundamentally different from competing-consumers
+(SKIP LOCKED) where each job goes to one worker. pg-boss has fan-out but it
+is copy-per-queue (one INSERT per subscriber per event). PgQue's model is
+position-in-shared-log — no data duplication, atomic batch boundaries, late
+subscribers catch up.
+
+This makes PgQue more analogous to Kafka topics than to a job queue.
+
+### When to use PgQue vs. a job queue
+
+PgQue is an **event/message queue**. River, graphile-worker, pg-boss, and
+Oban are **job queue frameworks**. They are different categories:
+
+- **Choose PgQue** when you want event-driven fan-out, zero-maintenance
+  bloat behavior, language-agnostic SQL API, and you do not need per-job
+  priorities/scheduling/worker frameworks
+- **Choose a job queue** when you need per-job lifecycle management,
+  sub-3ms latency, priority queues, cron scheduling, unique jobs, and
+  deep ecosystem integration (Elixir/Go/Node.js/Ruby)
+
 ## Installation
 
 **Requirements:** PostgreSQL 14+. `pg_cron` is optional and recommended.
