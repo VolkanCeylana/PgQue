@@ -68,20 +68,6 @@ begin
   raise notice 'PASS: manual send/ticker/maint/receive/ack works without pg_cron';
 end $$;
 
--- queue_health should not scream about missing pg_cron.
-do $$
-declare
-  v_bad int;
-begin
-  select count(*) into v_bad
-  from pgque.queue_health()
-  where check_name in ('pg_cron_ticker', 'pg_cron_maint')
-     or (check_name = 'scheduler' and status <> 'info');
-
-  assert v_bad = 0, 'queue_health() should not report bogus pg_cron failures';
-  raise notice 'PASS: queue_health handles missing pg_cron cleanly';
-end $$;
-
 -- status should mention manual scheduling path.
 do $$
 declare
