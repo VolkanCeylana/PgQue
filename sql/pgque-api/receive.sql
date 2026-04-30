@@ -36,7 +36,7 @@ begin
         raise exception 'pgque.receive: max_return must be >= 1, got %', i_max_return;
     end if;
 
-    -- Get next batch (may return NULL if no events)
+    -- Get next batch (may return NULL if no tick window is ready)
     v_batch_id := pgque.next_batch(i_queue, i_consumer);
     if v_batch_id is null then
         return;
@@ -56,6 +56,12 @@ begin
         cnt := cnt + 1;
         exit when cnt >= i_max_return;
     end loop;
+
+    -- Empty batch: finish immediately to advance the consumer cursor.
+    if cnt = 0 then
+        perform pgque.finish_batch(v_batch_id);
+    end if;
+
     return;
 end;
 $$ language plpgsql security definer set search_path = pgque, pg_catalog;
