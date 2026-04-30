@@ -225,16 +225,24 @@ export class Client {
     return new Consumer(this, queue, name, opts);
   }
 
-  /** Run `pgque.ticker()` once. Mostly useful for tests + manual rotation. */
-  async ticker(): Promise<void> {
+  /**
+   * Wrapper for pgque.ticker(): if `queue` is given, runs the per-queue
+   * overload (`pgque.ticker(queue text)`); otherwise runs the no-arg global
+   * overload. Returns the underlying tick result count.
+   */
+  async ticker(queue?: string): Promise<void> {
     try {
-      await this.pool.query('select pgque.ticker()');
+      if (queue !== undefined) {
+        await this.pool.query('select pgque.ticker($1)', [queue]);
+      } else {
+        await this.pool.query('select pgque.ticker()');
+      }
     } catch (err) {
-      throw mapPgError('ticker', err);
+      throw mapPgError('ticker', err, queue !== undefined ? { queue } : undefined);
     }
   }
 
-  /** Run `pgque.force_tick(queue)`. Mostly useful for tests. */
+  /** Exact wrapper for pgque.force_tick(queue). Bumps the event-seq threshold so the next ticker run produces a tick. */
   async forceTick(queue: string): Promise<void> {
     try {
       await this.pool.query('select pgque.force_tick($1)', [queue]);

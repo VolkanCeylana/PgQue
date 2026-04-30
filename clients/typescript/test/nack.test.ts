@@ -2,7 +2,7 @@
 // Copyright 2026 Nikolay Samokhvalov. Apache-2.0 license.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { TEST_DSN, setupTestQueue, teardownTestQueue, type TestEnv } from './helpers.js';
+import { TEST_DSN, setupTestQueue, teardownTestQueue, advanceQueue, type TestEnv } from './helpers.js';
 
 const skipIfNoDb = TEST_DSN ? it : it.skip;
 
@@ -21,7 +21,7 @@ describe('nack routing (env-gated)', () => {
 
   skipIfNoDb('first nack lands in retry_queue, not dead_letter', async () => {
     await env.client.send(env.queue, { type: 'nack.test', payload: { v: 1 } });
-    await env.client.forceTick(env.queue);
+    await advanceQueue(env.client, env.queue);
     const msgs = await env.client.receive(env.queue, env.consumer, 10);
     expect(msgs).toHaveLength(1);
     const m = msgs[0]!;
@@ -50,7 +50,7 @@ describe('nack routing (env-gated)', () => {
 
   skipIfNoDb('nack honors custom retryAfter and reason', async () => {
     await env.client.send(env.queue, { type: 'nack.custom', payload: { v: 1 } });
-    await env.client.forceTick(env.queue);
+    await advanceQueue(env.client, env.queue);
     const [m] = await env.client.receive(env.queue, env.consumer, 10);
     expect(m).toBeDefined();
 
@@ -60,12 +60,12 @@ describe('nack routing (env-gated)', () => {
     });
     await env.client.ack(m!.batchId);
 
-    const retry = await env.client.rawPool.query<{ ev_retry_after_ts: Date }>(
-      `select rq.ev_retry_after_ts
+    const retry = await env.client.rawPool.query<{ ev_retry_after: Date }>(
+      `select rq.ev_retry_after
          from pgque.retry_queue rq
          join pgque.queue q on q.queue_id = rq.ev_queue
         where q.queue_name = $1
-        order by rq.ev_retry_after_ts desc
+        order by rq.ev_retry_after desc
         limit 1`,
       [env.queue],
     );
@@ -82,7 +82,7 @@ describe('nack routing (env-gated)', () => {
     );
 
     await env.client.send(env.queue, { type: 'nack.dlq', payload: { v: 1 } });
-    await env.client.forceTick(env.queue);
+    await advanceQueue(env.client, env.queue);
     const [m] = await env.client.receive(env.queue, env.consumer, 10);
     expect(m).toBeDefined();
 
