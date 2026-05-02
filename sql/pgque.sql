@@ -2214,6 +2214,10 @@ end;
 $$ language plpgsql; -- no perms needed
 
 
+-- ----------------------------------------------------------------------
+-- Advanced PgQ-compatible primitive. Application roles should use
+-- pgque.receive(); get_batch_cursor is kept admin-only in the grants block.
+-- ----------------------------------------------------------------------
 create or replace function pgque.get_batch_cursor(
     in i_batch_id       bigint,
     in i_cursor_name    text,
@@ -4346,6 +4350,11 @@ begin
             from public, pgque_reader, pgque_writer, pgque_admin;
     end if;
 end $$;
+
+-- get_batch_cursor is an advanced PgQ-compatible primitive.
+-- Keep both overloads admin-only; application roles should use pgque.receive().
+revoke execute on function pgque.get_batch_cursor(bigint, text, int4)        from public, pgque_reader, pgque_writer;
+revoke execute on function pgque.get_batch_cursor(bigint, text, int4, text)  from public, pgque_reader, pgque_writer;
 
 -- pgque-additions/dlq.sql
 -- pgque dead letter queue (DLQ) -- table + helper functions

@@ -146,3 +146,9 @@ begin
             from public, pgque_reader, pgque_writer, pgque_admin;
     end if;
 end $$;
+
+
+-- get_batch_cursor is an advanced PgQ-compatible primitive.
+-- Keep both overloads admin-only; application roles should use pgque.receive().
+revoke execute on function pgque.get_batch_cursor(bigint, text, int4)        from public, pgque_reader, pgque_writer;
+revoke execute on function pgque.get_batch_cursor(bigint, text, int4, text)  from public, pgque_reader, pgque_writer;
