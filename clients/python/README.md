@@ -24,9 +24,14 @@ with pgque.connect("postgresql://localhost/mydb") as client:
     client.conn.execute("select pgque.subscribe('orders', 'order_worker')")
     client.conn.commit()
 
-    # producer
-    client.send("orders", {"order_id": 42}, type="order.created")
+    # producer: commit once to publish both calls atomically
+    event_id = client.send("orders", {"order_id": 42}, type="order.created")
+    batch_ids = client.send_batch("orders", "order.created", [
+        {"order_id": 43},
+        {"order_id": 44},
+    ])
     client.conn.commit()
+    print(event_id, batch_ids)
 
 # consumer (separate process / thread)
 consumer = pgque.Consumer(
@@ -40,10 +45,8 @@ def handle_order(msg: pgque.Message) -> None:
     print(f"got {msg.type}: {msg.payload}")
 
 # Optional: catch-all handler for types with no specific handler.
-# Without it, messages with unhandled types are logged at WARNING and
-# acked. Register a handler for that type or use a "*" catch-all to
-# handle them deliberately.
-# Note: Unhandled event types are acknowledged after a warning. Register a `*` handler if you want to fail/nack/route unknown types yourself.
+# Without it, messages with unhandled types are logged at WARNING and acked.
+# Register a `*` handler if you want to fail/nack/route unknown types yourself.
 @consumer.on("*")
 def handle_unknown(msg: pgque.Message) -> None:
     print(f"unhandled type {msg.type!r}: {msg.payload}")
