@@ -170,6 +170,30 @@ PAGER=cat psql --no-psqlrc -d mydb -c "select pgque.maint()"               # eve
 
 Treat installation as one-way for now — upgrade and reinstall paths are still being tightened. To uninstall: `\i sql/pgque_uninstall.sql`.
 
+### Optional: install as a [`pg_tle`](https://github.com/aws/pg_tle) extension
+
+This is opt-in. The default `\i sql/pgque.sql` install stays the recommended path; use pg_tle only if you specifically want PgQue managed as a real Postgres extension.
+
+What you get with pg_tle: `pg_extension` membership, `alter extension pgque update` for version upgrades, and `drop extension pgque cascade` for atomic uninstall. What you give up: pg_tle is itself a C extension preloaded via `shared_preload_libraries`, which is the dependency the default install avoids. Available on AWS RDS / Aurora and self-hosted Postgres; check your provider's extension list otherwise.
+
+**Prerequisites.** Run the installer as a role that holds `pgtle_admin` plus `CREATEROLE` (Postgres roles are cluster-global, so the wrapper creates `pgque_reader` / `pgque_writer` / `pgque_admin` outside the TLE body). pg_tle must also be in `shared_preload_libraries`. On managed providers, set this via the parameter group / cluster config UI and reboot. On self-hosted Postgres, **append** `pg_tle` to the existing list — overwriting it disables anything else you preload (e.g. `pg_cron`):
+
+```sql
+show shared_preload_libraries;                                -- inspect current list first
+alter system set shared_preload_libraries = 'pg_cron,pg_tle'; -- preserve existing entries
+-- restart Postgres, then in the target database:
+create extension pg_tle;
+```
+
+Once pg_tle is loaded, register and create PgQue:
+
+```sql
+\i sql/pgque-tle.sql
+create extension pgque;
+```
+
+To uninstall: `\i sql/pgque-tle-uninstall.sql`.
+
 ## Roles and grants
 
 The install creates three roles. Application users do not need superuser — grant them whichever role matches their access pattern.
@@ -371,7 +395,7 @@ PgQue keeps PgQ's proven core architecture — snapshot-based batch isolation, t
 | Ruby library |  |
 | Basic observability views | ✅ |
 | Prometheus exporter |  |
-| `pg_tle` extension package |  |
+| `pg_tle` extension package | ✅ |
 | Migration guides |  |
 
 ## Contributing

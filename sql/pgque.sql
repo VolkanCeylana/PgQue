@@ -1,5 +1,5 @@
 -- pgque.sql -- PgQ Universal Edition
--- Version: 1.0.0-dev
+-- Version: 0.2.0-dev
 -- Copyright 2026 Nikolay Samokhvalov. Apache-2.0 license.
 -- Includes code derived from PgQ (ISC license, Marko Kreen / Skype Technologies OU).
 --
@@ -4160,7 +4160,7 @@ $$ language plpgsql security definer set search_path = pgque, pg_catalog;
 create or replace function pgque.version()
 returns text as $$
 begin
-    return '1.0.0-dev';
+    return '0.2.0-dev';
 end;
 $$ language plpgsql security definer set search_path = pgque, pg_catalog;
 
