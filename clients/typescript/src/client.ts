@@ -142,10 +142,6 @@ export class Client {
   /**
    * Fetch up to `maxMessages` from the next batch for `consumer` on `queue`.
    * Returns an empty array when no batch is currently available.
-   *
-   * WARNING: `ack(batchId)` finishes the whole underlying PgQ batch, including
-   * rows beyond `maxMessages`. Direct receive callers should pass a value large
-   * enough for the queue's possible batch size before acknowledging the batch.
    */
   async receive(queue: string, consumer: string, maxMessages = 100): Promise<Message[]> {
     if (!queue) {
@@ -268,27 +264,80 @@ export class Client {
   }
 
   /**
-   * Wrapper for pgque.ticker(): if `queue` is given, runs the per-queue
-   * overload (`pgque.ticker(queue text)`); otherwise runs the no-arg global
-   * overload. Resolves after the ticker call completes.
+   * Run the per-queue ticker for `queue`. Wraps `pgque.ticker(queue text)`
+   * (the one-argument SQL overload).
+   *
+   * Returns the new tick id (`bigint`) when a tick was created, or `null`
+   * when no tick was needed (e.g. the queue is idle or the max-lag threshold
+   * has not been reached yet). Mirrors the SQL function's `returns bigint`
+   * contract where the function returns `NULL` on no-op.
+   *
+   * Throws if the queue does not exist or has an external ticker configured.
+   *
+   * For the global (all-queues) ticker use {@link tickerAll}.
    */
-  async ticker(queue?: string): Promise<void> {
+  async ticker(queue: string): Promise<bigint | null> {
     try {
-      if (queue !== undefined) {
-        await this.pool.query('select pgque.ticker($1)', [queue]);
-      } else {
-        await this.pool.query('select pgque.ticker()');
+      const result = await this.pool.query<{ ticker: bigint | null }>(
+        'select pgque.ticker($1) as ticker',
+        [queue],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        throw new PgqueSqlError('ticker', { cause: new Error('no row returned') });
       }
+      return row.ticker !== null ? BigInt(row.ticker) : null;
     } catch (err) {
-      throw mapPgError('ticker', err, queue !== undefined ? { queue } : undefined);
+      if (err instanceof PgqueError) throw err;
+      throw mapPgError('ticker', err, { queue });
     }
   }
 
-  /** Exact wrapper for pgque.force_tick(queue). Bumps the event-seq threshold so the next ticker run produces a tick. */
-  async forceTick(queue: string): Promise<void> {
+  /**
+   * Run the global ticker across all eligible queues. Wraps the zero-argument
+   * `pgque.ticker()` SQL overload.
+   *
+   * Returns the number of queues that had a tick inserted during this call.
+   * The SQL function returns `bigint`; this method narrows to JS `number`
+   * because the queue count is always well within `Number.MAX_SAFE_INTEGER`.
+   */
+  async tickerAll(): Promise<number> {
     try {
-      await this.pool.query('select pgque.force_tick($1)', [queue]);
+      const result = await this.pool.query<{ ticker: bigint }>(
+        'select pgque.ticker() as ticker',
+      );
+      const row = result.rows[0];
+      if (!row) {
+        throw new PgqueSqlError('tickerAll', { cause: new Error('no row returned') });
+      }
+      return Number(row.ticker);
     } catch (err) {
+      if (err instanceof PgqueError) throw err;
+      throw mapPgError('tickerAll', err);
+    }
+  }
+
+  /**
+   * Bump the event-seq threshold for `queue` so the next `ticker(queue)` call
+   * produces a tick. Wraps `pgque.force_tick(queue text)`.
+   *
+   * Returns the current last tick id (`bigint`) for the queue, or `null` if
+   * the queue has no ticks yet (brand-new queue) or if the queue is paused /
+   * has an external ticker (the SQL function silently skips those cases).
+   */
+  async forceTick(queue: string): Promise<bigint | null> {
+    try {
+      const result = await this.pool.query<{ force_tick: bigint | null }>(
+        'select pgque.force_tick($1) as force_tick',
+        [queue],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        throw new PgqueSqlError('force_tick', { cause: new Error('no row returned') });
+      }
+      return row.force_tick !== null ? BigInt(row.force_tick) : null;
+    } catch (err) {
+      if (err instanceof PgqueError) throw err;
       throw mapPgError('force_tick', err, { queue });
     }
   }
@@ -325,6 +374,21 @@ export async function connect(
   return new Client(pool);
 }
 
+function rowToMessage(row: RawMessageRow): Message {
+  return {
+    msgId: row.msg_id,
+    batchId: row.batch_id,
+    type: row.type,
+    payload: row.payload,
+    retryCount: row.retry_count,
+    createdAt: row.created_at,
+    extra1: row.extra1,
+    extra2: row.extra2,
+    extra3: row.extra3,
+    extra4: row.extra4,
+  };
+}
+
 function serializePayload(payload: unknown): string {
   // JSON.stringify(undefined) returns the literal `undefined` (not the
   // string "null"), which would coerce to a SQL NULL bind param. Coerce
@@ -347,21 +411,6 @@ function serializePayload(payload: unknown): string {
     });
   }
   return encoded;
-}
-
-function rowToMessage(row: RawMessageRow): Message {
-  return {
-    msgId: row.msg_id,
-    batchId: row.batch_id,
-    type: row.type,
-    payload: row.payload,
-    retryCount: row.retry_count,
-    createdAt: row.created_at,
-    extra1: row.extra1,
-    extra2: row.extra2,
-    extra3: row.extra3,
-    extra4: row.extra4,
-  };
 }
 
 function mapPgError(op: string, err: unknown, ctx?: { queue?: string }): PgqueError {
