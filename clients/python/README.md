@@ -109,6 +109,13 @@ client.conn.commit()
 
 `client.force_tick(queue)` remains as a deprecated compatibility alias.
 
+## Transactions
+
+`send` → ticker → `receive` must each run in its own committed transaction (PgQue is snapshot-based). `pgque.connect(dsn)` is non-autocommit by default — commit between produce and consumer. The `Consumer` is autocommit + explicit `conn.transaction()` around `receive + dispatch + ack`.
+
+Don't wrap `send` and `receive` in one explicit tx; same for `maint_retry_events` + `ticker`. See [snapshot rule](https://github.com/NikolayS/pgque/blob/main/docs/pgq-concepts.md#snapshot-rule).
+
+
 ## Tests
 
 Integration tests require a running PostgreSQL with the PgQue schema

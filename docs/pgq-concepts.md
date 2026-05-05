@@ -72,6 +72,43 @@ below; the function auto-prefixes `queue_` internally.
 
 — Kreen & Pihlak, PgCon 2009
 
+## Snapshot rule
+
+PgQue is snapshot-based, not row-claiming. The ticker records the
+PostgreSQL snapshot it sees; `pgque.receive` only returns events whose
+insert committed **before** that snapshot. Consequence: the following
+operation chains MUST run in distinct, committed transactions —
+combining any chain in one explicit `begin`/`commit` block silently
+produces empty batches and dropped messages.
+
+- **Producer → consumer.** `pgque.send` (or `pgque.insert_event`) →
+  `pgque.ticker` (or `pgque.force_tick` + `pgque.ticker`) →
+  `pgque.receive` (or `pgque.next_batch`).
+- **Retry pump.** `pgque.maint_retry_events` (re-inserts retry rows
+  into event tables with `pg_current_xact_id()`) → `pgque.ticker`
+  (must run in a later tx so the new `ev_txid`s are visible in its
+  snapshot) → `pgque.receive`.
+- **Rotation.** `pgque.maint_rotate_tables_step1` →
+  `pgque.maint_rotate_tables_step2` (PgQ design requirement).
+
+By contrast, `receive → process → ack` belongs in **one** transaction
+when you want exactly-once effects on the same database (see the
+[transactional pattern](examples.md#exactly-once-processing-transactional-pattern)).
+The asymmetry: producer-to-consumer flow needs commit boundaries between
+steps; consume-to-side-effect flow needs them merged.
+
+For the shipped clients: Go (`pgxpool`) and TypeScript (`pg.Pool`) run
+each call in its own implicit transaction, so the rule is satisfied
+transparently. The Python client requires care — `pgque.connect(dsn)`
+is **not** autocommit by default, so producers must commit explicitly
+between `send` and the consumer side; the high-level Python `Consumer`
+already handles this internally (autocommit + an explicit
+`conn.transaction()` around `receive + dispatch + ack`). The footgun
+in every driver is reaching for the underlying pool/connection
+(`Client.Pool()`, `client.rawPool`, `client.conn`) to wrap `send` and
+`receive` in one explicit transaction — the consumer side will not see
+what the producer just sent.
+
 ## Three latencies
 
 For the full explanation — producer latency, subscriber latency,

@@ -115,6 +115,8 @@ The consume API wraps `pgque.next_batch`, `pgque.get_batch_events`, `pgque.finis
 
 All consume-side functions (`receive`, `ack`, `nack`, `subscribe`, `unsubscribe`) are granted to `pgque_reader`, mirroring upstream PgQ's producer/consumer role split. Apps that both produce and consume must hold both `pgque_reader` and `pgque_writer` — `pgque_writer` does not inherit `pgque_reader`.
 
+<a id="snapshot-rule"></a>**Snapshot rule.** `pgque.send` → `pgque.ticker` → `pgque.receive` must each run in its own committed transaction (the ticker's snapshot must be taken after `send` commits; `receive` only sees what committed before it). Same for `pgque.maint_retry_events` → `pgque.ticker` → `pgque.receive`. Go (`pgxpool`) and TypeScript (`pg.Pool`) satisfy this transparently; Python `pgque.connect()` is non-autocommit by default and needs explicit commit boundaries (the high-level Python `Consumer` handles this internally). The footgun in every driver is reaching for the underlying pool/connection (`Client.Pool()`, `client.rawPool`, `client.conn`) to wrap producer + consumer calls in one explicit transaction. See [pgq-concepts.md#snapshot-rule](pgq-concepts.md#snapshot-rule).
+
 #### `pgque.receive(queue text, consumer text, max_return int default 100) → setof pgque.message`
 
 Pulls the next batch for `consumer` on `queue` and streams up to `max_return` messages. `max_return` must be >= 1; passing 0 or a negative value raises an error. Returns an empty set if no batch is available. Each row is a `pgque.message` composite (see [§Message type](#message-type)).
@@ -238,7 +240,7 @@ Grant: `pgque_admin`. Source: `sql/pgque-api/maint.sql`.
 
 #### `pgque.maint_retry_events() → integer`
 
-Moves due rows from `pgque.retry_queue` back into queue event tables so they appear in the next tick. Must be called periodically when using `nack()` with retry — `pgque.start()` schedules it as `pgque_retry_events` every 30 s. When driving the scheduler manually, call this alongside `pgque.maint()`:
+Moves due rows from `pgque.retry_queue` back into queue event tables so they appear in the next tick. Must be called periodically when using `nack()` with retry — `pgque.start()` schedules it as `pgque_retry_events` every 30 s. When driving the scheduler manually, call this alongside `pgque.maint()`. The re-inserted rows carry `pg_current_xact_id()` as their `ev_txid`, so the subsequent `pgque.ticker` call must run in a **separate** transaction — see the [snapshot rule](#snapshot-rule).
 
 ```sql
 select pgque.maint_retry_events(); -- every 30 seconds, for nack/retry redelivery
@@ -276,6 +278,8 @@ Grant: `pgque_admin`. Source: `sql/pgque-additions/tick_helpers.sql`.
 
 Alias for `pgque.force_next_tick`. Retained for compatibility with upstream PgQ (the historical name); identical behavior. The name is misleading — the function does not insert a tick by itself, it only bumps the event sequence so the next `pgque.ticker()` call inserts one. Raises if the queue is missing, ticker-paused, or configured for an external ticker. Prefer `force_next_tick` in new code.
 Grant: `pgque_admin`. Source: `sql/pgque.sql`.
+
+> The `force_tick` → `ticker` → `receive` chain must run across separate transactions for the consumer to see the events you just sent. See the [snapshot rule](#snapshot-rule).
 
 #### `pgque.uninstall() → void`
 
