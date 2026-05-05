@@ -24,9 +24,9 @@ do $$ begin
   perform pgque.send('us2_events', 'user.signup', '{"user":5}'::jsonb);
 end $$;
 
--- Tick (force_tick bypasses throttle)
+-- Tick (force_next_tick bypasses throttle)
 do $$ begin
-  perform pgque.force_tick('us2_events');
+  perform pgque.force_next_tick('us2_events');
   perform pgque.ticker();
 end $$;
 

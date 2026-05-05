@@ -28,9 +28,9 @@ end $$;
 
 -- Tick all queues
 do $$ begin
-  perform pgque.force_tick('us9_healthy');
-  perform pgque.force_tick('us9_lagging');
-  perform pgque.force_tick('us9_dlq');
+  perform pgque.force_next_tick('us9_healthy');
+  perform pgque.force_next_tick('us9_lagging');
+  perform pgque.force_next_tick('us9_dlq');
   perform pgque.ticker();
 end $$;
 
