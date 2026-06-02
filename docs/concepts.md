@@ -56,7 +56,7 @@ The two compose: a queue can have several independent fan-out consumers, and any
 - **Use fan-out** when every consumer needs every event (different subsystems, different side effects).
 - **Use cooperative consumers** when one subscriber's events should be split across interchangeable workers for throughput, and a given event must be handled once within that pool.
 
-See [examples](examples.md#cooperative-consumers-experimental) for the cooperative recipe and [reference](reference.md#cooperative-consumers--subconsumers) for signatures.
+See [examples](examples.md#cooperative-consumers--subconsumers-experimental) for the cooperative recipe and [reference](reference.md#cooperative-consumers--subconsumers) for signatures.
 
 ## Why zero bloat
 
