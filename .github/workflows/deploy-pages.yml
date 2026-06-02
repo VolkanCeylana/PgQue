@@ -33,7 +33,7 @@ jobs:
           node-version: 20
       - name: Install dependencies
         working-directory: web
-        run: npm install
+        run: npm ci
       - name: Build site
         working-directory: web
         run: npm run build

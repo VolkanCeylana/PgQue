@@ -9,11 +9,19 @@ import starlight from '@astrojs/starlight';
  * not account for our `docs/` id prefix, so rewrite those links here instead.
  */
 function rewriteDocsLinks() {
+  /*
+   * Only rewrite bare SIBLING doc links (e.g. `reference.md`, `tutorial.md#x`).
+   * All docs pages live flat in ../docs, so an intra-docs link never contains a
+   * slash. Links with a path segment (e.g. `../clients/go/README.md`) point
+   * outside the docs collection and must be left untouched — otherwise the
+   * basename collapse turns `../clients/go/README.md` into `/docs`.
+   */
   const isRelativeMd = (href) =>
     typeof href === 'string' &&
     !/^[a-z]+:/i.test(href) &&
     !href.startsWith('/') &&
     !href.startsWith('#') &&
+    !href.includes('/') &&
     /\.md(#.*)?$/.test(href);
 
   const toDocsPath = (href) => {

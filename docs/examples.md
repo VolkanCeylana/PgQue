@@ -143,7 +143,7 @@ See [the tutorial](tutorial.md) for the full retry-and-nack flow that feeds the 
 
 PgQue is SQL-first, so any Postgres driver works. First-party clients for Python, Go, and TypeScript wrap the same `send` / `receive` / `ack` surface. Each has its own README with the full API.
 
-Python ([clients/python/README.md](../clients/python/README.md)):
+Python ([clients/python](https://github.com/NikolayS/pgque/tree/main/clients/python)):
 
 ```bash
 pip install --pre pgque-py
@@ -160,7 +160,7 @@ with pgque.connect("postgresql://localhost/mydb") as client:
         client.ack(messages[0].batch_id)
 ```
 
-Go ([clients/go/README.md](../clients/go/README.md)):
+Go ([clients/go](https://github.com/NikolayS/pgque/tree/main/clients/go)):
 
 ```bash
 go get github.com/NikolayS/pgque-go
@@ -180,7 +180,7 @@ if len(msgs) > 0 {
 }
 ```
 
-TypeScript ([clients/typescript/README.md](../clients/typescript/README.md)):
+TypeScript ([clients/typescript](https://github.com/NikolayS/pgque/tree/main/clients/typescript)):
 
 ```bash
 npm install pgque@rc   # or: bun add pgque@rc
