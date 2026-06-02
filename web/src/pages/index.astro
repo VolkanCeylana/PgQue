@@ -243,7 +243,7 @@ const cell = (v) =>
 
     <main>
       <section class="hero">
-        <div class="hero-copy hero-copy--full">
+        <div class="hero-copy">
           <p class="eyebrow"><span class="eyebrow-dot"></span>PgQ, universal edition</p>
           <h1>Zero-bloat Postgres queue.</h1>
           <p class="subhead accent">One SQL file to install.</p>
@@ -263,9 +263,7 @@ const cell = (v) =>
             <span class="install-note">then <code>select pgque.start();</code></span>
           </div>
         </div>
-      </section>
-
-      <figure class="bench-figure reveal">
+        <figure class="hero-visual">
           <div class="console">
             <div class="console-bar">
               <span class="console-title">event-table dead tuples under a held xmin horizon</span>
@@ -286,7 +284,8 @@ const cell = (v) =>
             The death spiral of a <code>SKIP LOCKED</code> queue under sustained
             load — the failure mode PgQue avoids by construction.
           </figcaption>
-      </figure>
+        </figure>
+      </section>
 
       <section class="band">
         <div class="band-inner split reveal">
@@ -777,11 +776,14 @@ const cell = (v) =>
       :root:not([data-theme-pref]) .theme-toggle .ic-auto { display: block; }
 
       /* hero */
-      /* Hero copy is full-width; the benchmark is promoted to its own large
-         figure below (so the chart renders near its native ~900px and stays
-         legible). */
-      .hero { padding: 72px 0 40px; }
-      .hero-copy--full { max-width: 64ch; }
+      /* Two-column hero: copy on the left, benchmark console figure on the
+         right (vertically aligned with the copy). The visual column is the
+         wider track (~52%) so the chart is as large as fits beside the text. */
+      .hero {
+        display: grid; grid-template-columns: 0.95fr 1.05fr; gap: 48px;
+        align-items: center; padding: 72px 0 88px;
+      }
+      .hero-copy { min-width: 0; }
       .eyebrow {
         display: inline-flex; align-items: center; gap: 8px;
         text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.74rem;
@@ -820,12 +822,10 @@ const cell = (v) =>
       .install > code { color: var(--accent); font-weight: 600; }
       .install-note { color: var(--muted); font-size: 0.9rem; }
 
-      /* Large standalone benchmark figure: centred, capped at the chart's
-         native width so labels stay legible (never upscaled past 900px). */
-      .bench-figure {
-        margin: 0 auto; width: 100%; max-width: 820px; padding: 0 0 72px;
-      }
-      .bench-figure figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 16px; line-height: 1.55; }
+      /* Benchmark figure beside the hero copy: fills its column, never past
+         the chart's native 900px, never overflowing (image width:100%). */
+      .hero-visual { margin: 0; min-width: 0; max-width: 900px; }
+      .hero-visual figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 16px; line-height: 1.55; }
 
       /* Restrained console frame around the benchmark readout: a single title
          bar with a hairline divider, precise radii, aligned padding. */
@@ -1038,7 +1038,7 @@ const cell = (v) =>
 
       @media (max-width: 880px) {
         :root { --section-y: 64px; }
-        .hero { padding: 40px 0 24px; }
+        .hero { grid-template-columns: 1fr; gap: 36px; padding: 40px 0 56px; }
         .split { grid-template-columns: 1fr; gap: 30px; }
         .feature-grid { grid-template-columns: 1fr; }
         .client-row { grid-template-columns: repeat(2, 1fr); max-width: 520px; }
