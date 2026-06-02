@@ -99,7 +99,7 @@ See [docs/latency-and-tuning.md](docs/latency-and-tuning.md) for the breakdown, 
 | No external daemon or worker binary | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Pure SQL install, managed Postgres ready | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | Language-agnostic SQL API | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Multiple independent consumers (fan-out) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| Shared-log fan-out: each consumer sees every event | ✅ | ✅ | ❌ | ❌ | ❌ | ⚠️ |
 | Built-in retry with backoff | ✅ | ✅ | ⚠️ | ✅ | ✅ | ✅ |
 | Built-in dead letter queue | ✅ | ❌ | ⚠️ | ⚠️ | ❌ | ✅ |
 
@@ -111,6 +111,7 @@ See [docs/latency-and-tuning.md](docs/latency-and-tuning.md) for the breakdown, 
 - **No external daemon:** PgQue uses pg_cron (or your own scheduler) for ticking; PGMQ uses visibility timeouts. River, Que, and pg-boss require a Go / Ruby / Node.js worker binary.
 - **[Que](https://github.com/que-rb/que)** uses advisory locks (not SKIP LOCKED) — no dead tuples from *claiming*, but completed jobs are still DELETEd. Brandur's [bloat post](https://brandur.org/postgres-queues) was about Que at Heroku. Ruby-only.
 - **PGMQ retry** is visibility-timeout re-delivery (`read_ct` tracking) — no configurable backoff or max attempts.
+- **PGMQ consumers:** PGMQ supports multiple producers and multiple competing consumers/workers. The `❌` in the fan-out row means it does not provide PgQ-style independent consumer cursors where every registered consumer receives every event from a shared log.
 - **pg-boss fan-out** is copy-per-queue `publish()`/`subscribe()`, not a shared event log with independent cursors.
 - **Category:** River, Que, and pg-boss (and Oban, graphile-worker, solid_queue, good_job) are **job queue frameworks**. PgQue is an **event/message queue** optimized for high-throughput streaming with fan-out.
 
@@ -334,12 +335,12 @@ Longer walkthrough in the [tutorial](docs/tutorial.md); patterns like fan-out, e
 
 ## Client libraries
 
-PgQue is SQL-first, so any Postgres driver works. First-party client libraries live in this repo for **Python**, **Go**, and **TypeScript**, all published at `v0.2.0-rc.2`.
+PgQue is SQL-first, so any Postgres driver works. First-party client libraries live in this repo for **Python**, **Go**, and **TypeScript**, all published at `v0.2.0`.
 
 ### Python (`pgque-py`) — psycopg 3
 
 ```bash
-pip install --pre pgque-py        # or: pip install "pgque-py==0.2.0rc2"
+pip install pgque-py
 ```
 
 ```python
@@ -365,7 +366,7 @@ consumer.start()
 ### Go (`github.com/NikolayS/pgque-go`) — pgx/v5
 
 ```bash
-go get github.com/NikolayS/pgque-go@v0.2.0-rc.2
+go get github.com/NikolayS/pgque-go@v0.2.0
 ```
 
 ```go
@@ -387,7 +388,7 @@ consumer.Start(ctx)
 ### TypeScript (`pgque`) — node-postgres
 
 ```bash
-npm install pgque@rc        # or: bun add pgque@rc
+npm install pgque        # or: bun add pgque
 ```
 
 ```ts
