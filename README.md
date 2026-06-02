@@ -74,7 +74,7 @@ PgQue gives you queue semantics **inside** Postgres, with Postgres durability an
 
 PgQue is built around **snapshot-based batching**, not row-by-row claiming. That's what gives it zero bloat in the hot path, stable behavior under sustained load, and clean ACID semantics inside Postgres.
 
-The trade-off is **end-to-end delivery latency** — the gap between `send` and when a consumer can `receive` the event. PgQue ticks **10 times per second** (every 100 ms) by default, so the wait for the next tick is about half the tick period on average. A committed benchmark (`benchmark/tick-rate/`) measures median end-to-end delivery around 52 ms at the default 100 ms tick, with a max of roughly one tick period (about 105–145 ms across the committed runs), plus the consumer's poll interval. The `send` / `receive` / `ack` calls themselves are individually fast. See [docs/latency-and-tuning.md](docs/latency-and-tuning.md) for the full breakdown.
+The trade-off is **end-to-end delivery latency** — the gap between `send` and when a consumer can `receive` the event. PgQue ticks **10 times per second** (every 100 ms) by default, so the wait for the next tick is about half the tick period on average. A committed benchmark ([`benchmark/tick-rate/`](https://github.com/NikolayS/pgque/tree/main/benchmark/tick-rate)) measures median end-to-end delivery around 52 ms at the default 100 ms tick, with a max of roughly one tick period (about 105–145 ms across the committed runs), plus the consumer's poll interval. The `send` / `receive` / `ack` calls themselves are individually fast. See [docs/latency-and-tuning.md](docs/latency-and-tuning.md) for the full breakdown.
 
 Ways to reduce delivery latency: tune the tick period (for example `pgque.set_tick_period_ms(50)` for 20 ticks/sec; accepted periods are exact divisors of 1000 ms) and queue thresholds; use `force_next_tick()` for tests and demos or to force an immediate batch. Future versions may add logical-decoding-based wake-ups for sub-millisecond delivery without burning more WAL on ticking.
 
@@ -86,7 +86,7 @@ If your top priority is single-digit-millisecond dispatch, PgQue is the wrong to
 
 1. **Producer latency** — `send` / `insert_event`. Individually fast.
 2. **Subscriber latency** — `next_batch` over a pre-built batch. Individually fast.
-3. **End-to-end delivery** — `send` → consumer visibility. About half the tick period on average (default 100 ms tick), measured at a median around 52 ms in the committed `benchmark/tick-rate/` benchmark. Tunable from 1 ms to 1000 ms via `pgque.set_tick_period_ms(ms)`. Does not grow with load.
+3. **End-to-end delivery** — `send` → consumer visibility. About half the tick period on average (default 100 ms tick), measured at a median around 52 ms in the committed [`benchmark/tick-rate/`](https://github.com/NikolayS/pgque/tree/main/benchmark/tick-rate) benchmark. Tunable from 1 ms to 1000 ms via `pgque.set_tick_period_ms(ms)`. Does not grow with load.
 
 See [docs/latency-and-tuning.md](docs/latency-and-tuning.md) for the breakdown, tick-cadence trade-off table, and comparison with UPDATE/DELETE-based designs.
 
@@ -281,7 +281,7 @@ DDL-class operations (`create_queue`, `drop_queue`, `start`, `stop`, `maint`, `m
 
 PgQue is **early-stage** as a product and API layer. PgQ itself has run at Skype scale for over a decade. What's new here is the packaging, modernization, managed-Postgres compatibility, and the higher-level PgQue API around that core.
 
-The default install stays small; additional APIs live under `sql/experimental/` until they are worth promoting. See [blueprints/PHASES.md](blueprints/PHASES.md).
+The default install stays small; additional APIs live under [`sql/experimental/`](https://github.com/NikolayS/pgque/tree/main/sql/experimental) until they are worth promoting. See [blueprints/PHASES.md](blueprints/PHASES.md).
 
 ## Docs
 
@@ -429,7 +429,7 @@ select pgque.ack(1);  -- replace with the batch_id from above
 ## Benchmarks
 
 The headline result is **zero bloat under a pinned xmin horizon** — the worst
-case for SKIP LOCKED queues. A committed benchmark (`benchmark/xmin-horizon/`,
+case for SKIP LOCKED queues. A committed benchmark ([`benchmark/xmin-horizon/`](https://github.com/NikolayS/pgque/tree/main/benchmark/xmin-horizon),
 with reproducer and raw results) holds an xmin and compares a SKIP LOCKED queue
 against PgQue. Under the held xmin, the SKIP LOCKED queue's dead tuples grow
 about **14×**, its table size about **15×**, and dequeue throughput drops about
@@ -437,13 +437,13 @@ about **14×**, its table size about **15×**, and dequeue throughput drops abou
 its throughput is unchanged. See [docs/concepts.md](docs/concepts.md) for the
 full comparison table and methodology.
 
-Cross-system measurements and reproducers live in [`benchmark/`](benchmark/).
+Cross-system measurements and reproducers live in [`benchmark/`](https://github.com/NikolayS/pgque/tree/main/benchmark).
 Numbers there are for reference and exploration, not a final verdict —
 benchmarking Postgres queues is hard (cf. Brendan Gregg) and the
 methodology continues to evolve.
 
 The cooperative-consumer demo harness lives in
-[`benchmark/subconsumer-scaling/`](benchmark/subconsumer-scaling/). It fixes the
+[`benchmark/subconsumer-scaling/`](https://github.com/NikolayS/pgque/tree/main/benchmark/subconsumer-scaling). It fixes the
 per-message downstream work and varies only consumer parallelism, so the
 scaling story is easy to see without mixing in producer cadence or tick tuning.
 

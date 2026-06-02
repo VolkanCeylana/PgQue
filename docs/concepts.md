@@ -73,7 +73,7 @@ The trade-off — and the one thing to monitor — is that rotation can only `TR
 
 ## Evidence: held xmin horizon
 
-The committed benchmark in `benchmark/xmin-horizon/` makes the difference concrete. It runs a `SKIP LOCKED` queue and PgQue side by side under identical load — 4 producers, 4 consumers, 2 bystander clients on an unrelated 1M-row table, producers rate-limited to 800 transactions per second, aggressive autovacuum on both — on Postgres 17. Scenario s1 is the baseline; scenario s2 holds a single `REPEATABLE READ` transaction open for the entire run, pinning the xmin horizon.
+The committed benchmark in [`benchmark/xmin-horizon/`](https://github.com/NikolayS/pgque/tree/main/benchmark/xmin-horizon) makes the difference concrete. It runs a `SKIP LOCKED` queue and PgQue side by side under identical load — 4 producers, 4 consumers, 2 bystander clients on an unrelated 1M-row table, producers rate-limited to 800 transactions per second, aggressive autovacuum on both — on Postgres 17. Scenario s1 is the baseline; scenario s2 holds a single `REPEATABLE READ` transaction open for the entire run, pinning the xmin horizon.
 
 | Scenario | Workload | Dequeue (jobs/s) | n_dead_tup | Bystander avg latency (ms) |
 |---|---|---:|---:|---:|
@@ -86,7 +86,7 @@ Under the held xmin horizon, the `SKIP LOCKED` queue's dead tuples climb from 6,
 
 PgQue, with the same xmin holder in place, keeps `n_dead_tup = 0` across all `pgque.event_*` tables and zero autovacuum runs — throughput is unchanged (792 jobs/s baseline, 804 under the held xmin). Rotation defers reclamation to `TRUNCATE` rather than depending on `VACUUM`, so a blocked xmin horizon simply does not touch the queue's hot path.
 
-The figures above come from `benchmark/xmin-horizon/results/results.md` (summary table) and the per-cell `final-bloat.csv` and `metrics.csv` under `results/s1-skiplocked`, `results/s1-pgque`, `results/s2-skiplocked`, and `results/s2-pgque`. The reproducer — `compose.yaml`, `Makefile`, `scripts/`, and `sql/` — is committed alongside them.
+The figures above come from [`benchmark/xmin-horizon/results/results.md`](https://github.com/NikolayS/pgque/blob/main/benchmark/xmin-horizon/results/results.md) (summary table) and the per-cell `final-bloat.csv` and `metrics.csv` under [`results/s1-skiplocked`](https://github.com/NikolayS/pgque/tree/main/benchmark/xmin-horizon/results/s1-skiplocked), [`results/s1-pgque`](https://github.com/NikolayS/pgque/tree/main/benchmark/xmin-horizon/results/s1-pgque), [`results/s2-skiplocked`](https://github.com/NikolayS/pgque/tree/main/benchmark/xmin-horizon/results/s2-skiplocked), and [`results/s2-pgque`](https://github.com/NikolayS/pgque/tree/main/benchmark/xmin-horizon/results/s2-pgque). The reproducer — `compose.yaml`, `Makefile`, `scripts/`, and `sql/` — is committed alongside them.
 
 ### Evidence in the wild
 

@@ -59,7 +59,7 @@ wait is about half the period, and the worst case is about one full period.
 The committed benchmark confirms this. At the default `tick_period_ms = 100`,
 median end-to-end delivery is about 52 ms — almost exactly period/2 — with a
 maximum of roughly one period (about 105–145 ms across the committed runs). See
-`benchmark/tick-rate/`.
+[`benchmark/tick-rate/`](https://github.com/NikolayS/pgque/tree/main/benchmark/tick-rate).
 
 ### It does not grow with load
 
@@ -94,7 +94,7 @@ blocked.
 
 ### Latency by tick period
 
-From the committed `benchmark/tick-rate/` reproducer (single laptop,
+From the committed [`benchmark/tick-rate/`](https://github.com/NikolayS/pgque/tree/main/benchmark/tick-rate) reproducer (single laptop,
 Postgres 16, `pg_cron` with `use_background_workers = on`; 100 ev/s producer,
 30 s per cell; methodology below):
 
@@ -105,8 +105,8 @@ Postgres 16, `pg_cron` with `use_background_workers = on`; 100 ev/s producer,
 | 10 | 100 ticks/sec | ≈ 8 ms | — | — |
 | 1 | 1000 ticks/sec | ≈ 3 ms | — | — |
 
-¹ Max from the idle-sweep run (`benchmark/tick-rate/README.md`). A separate
-committed run at the same period (`results-baseline.json`) saw a max of about
+¹ Max from the idle-sweep run ([`benchmark/tick-rate/README.md`](https://github.com/NikolayS/pgque/blob/main/benchmark/tick-rate/README.md)). A separate
+committed run at the same period ([`results-baseline.json`](https://github.com/NikolayS/pgque/blob/main/benchmark/tick-rate/results-baseline.json)) saw a max of about
 145 ms; treat the default-tick worst case as ~105–145 ms.
 
 At the default the distribution is clean: p50 ≈ 52 ms, p95 ≈ 99 ms, max
@@ -230,7 +230,7 @@ With pg_timetable, configure its own execution-log retention instead.
 
 ## Methodology
 
-The `benchmark/tick-rate/` figures measure end-to-end delivery latency as
+The [`benchmark/tick-rate/`](https://github.com/NikolayS/pgque/tree/main/benchmark/tick-rate) figures measure end-to-end delivery latency as
 `consumer_recv_ts - producer_send_ts`, both taken from server-side
 `clock_timestamp()` so there is no client clock skew. The producer stamps the
 send timestamp into the JSON payload; the consumer reads it back at

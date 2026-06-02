@@ -188,7 +188,7 @@ per queue; see [reference.md](reference.md) for the role-scope details.
 
 ## Upgrading
 
-Upgrades are SQL-file upgrades: re-run `sql/pgque.sql` over the existing install,
+Upgrades are SQL-file upgrades: re-run [`sql/pgque.sql`](https://github.com/NikolayS/pgque/blob/main/sql/pgque.sql) over the existing install,
 in a single transaction, as the schema owner or a superuser. From the repository
 root:
 
@@ -225,7 +225,7 @@ them yourself if you no longer need them.
 
 ## pg_tle packaging variant
 
-`sql/pgque-tle.sql` installs the same function and table surface wrapped as a
+[`sql/pgque-tle.sql`](https://github.com/NikolayS/pgque/blob/main/sql/pgque-tle.sql) installs the same function and table surface wrapped as a
 [pg_tle](https://github.com/aws/pg_tle) trusted-language extension, so PgQue
 appears in `pg_available_extensions` and is managed with `create extension` /
 `drop extension`. It trades the zero-dependency `\i` install for a `pg_tle`
@@ -259,7 +259,7 @@ Uninstall the TLE variant with:
 \i sql/pgque-tle-uninstall.sql
 ```
 
-If you have no specific reason to use `pg_tle`, prefer the plain `sql/pgque.sql`
+If you have no specific reason to use `pg_tle`, prefer the plain [`sql/pgque.sql`](https://github.com/NikolayS/pgque/blob/main/sql/pgque.sql)
 install above.
 
 ## Troubleshooting
