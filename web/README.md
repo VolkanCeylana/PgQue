@@ -13,19 +13,19 @@ built with [Astro](https://astro.build) + [Starlight](https://starlight.astro.bu
 
 ```bash
 cd web
-npm install
-npm run dev        # http://localhost:4321
+bun install
+bun run dev        # http://localhost:4321
 ```
 
 ## Build and preview
 
 ```bash
-npm run build      # static output in web/dist/
-npm run preview    # serve the built site locally
+bun run build      # static output in web/dist/
+bun run preview    # serve the built site locally
 ```
 
 ## Deploy
 
 `web/dist/` is a static bundle. The intended target is `pgque.dev` via a static
-host (Cloudflare Pages / Netlify / GitHub Pages). Build command `npm run build`,
+host (Cloudflare Pages / Netlify / GitHub Pages). Build command `bun run build`,
 output directory `web/dist`, project root `web/`. No CI/CD deploy is wired up yet.
